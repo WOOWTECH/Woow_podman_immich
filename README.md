@@ -59,8 +59,8 @@ Deploy this project instantly using Portainer's Stack feature with our GitHub re
 
    | Field | Value |
    |-------|-------|
-   | **Repository URL** | `https://github.com/WOOWTECH/Woow_immich_docker_compose_all` |
-   | **Repository reference** | `refs/heads/podman` |
+   | **Repository URL** | `https://github.com/WOOWTECH/Woow_podman_immich` |
+   | **Repository reference** | `refs/heads/main` |
    | **Compose path** | `docker-compose.yml` |
 
 5. Click **Deploy the stack**
@@ -70,7 +70,7 @@ Deploy this project instantly using Portainer's Stack feature with our GitHub re
 1. Copy the raw URL of `docker-compose.yml`:
 
    ```
-   https://raw.githubusercontent.com/WOOWTECH/Woow_immich_docker_compose_all/podman/docker-compose.yml
+   https://raw.githubusercontent.com/WOOWTECH/Woow_podman_immich/main/docker-compose.yml
    ```
 
 2. Log in to Portainer → **Stacks** → **Add stack** → **Web editor**
@@ -96,8 +96,8 @@ Deploy this project instantly using Portainer's Stack feature with our GitHub re
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/WOOWTECH/Woow_immich_docker_compose_all.git
-cd Woow_immich_docker_compose_all
+git clone https://github.com/WOOWTECH/Woow_podman_immich.git
+cd Woow_podman_immich
 ```
 
 ### 2. Configure Environment Variables
@@ -291,7 +291,7 @@ Add to crontab (`crontab -e`):
 
 ```cron
 # Daily Immich database backup at 3:00 AM
-0 3 * * * cd /path/to/Woow_immich_docker_compose_all && docker compose exec -T database pg_dumpall -U postgres | gzip > backups/backup_$(date +\%Y\%m\%d).sql.gz 2>&1
+0 3 * * * cd /path/to/Woow_podman_immich && docker compose exec -T database pg_dumpall -U postgres | gzip > backups/backup_$(date +\%Y\%m\%d).sql.gz 2>&1
 ```
 
 ### Restore
@@ -450,38 +450,7 @@ To index existing photo folders without copying files:
 
 ---
 
-## K3s/Kubernetes Deployment
+## Other deployment platforms
 
-This project also supports deployment on **K3s/Kubernetes** clusters. The K3s manifests are maintained on a separate branch.
-
-### Quick Start (K3s)
-
-```bash
-# Clone the k3s branch
-git clone -b k3s https://github.com/WOOWTECH/Woow_immich_docker_compose_all.git Woow_immich_docker_compose_all-k3s
-cd Woow_immich_docker_compose_all-k3s
-
-# Edit secrets before deploying
-nano secret.yaml
-
-# Deploy to your k3s cluster
-kubectl apply -k .
-
-# Verify pods are running
-kubectl -n immich get pods
-```
-
-### Deployment Methods Comparison
-
-| Feature | Podman/Docker Compose | K3s/Kubernetes |
-|---------|----------------------|----------------|
-| Branch | `main` | `k3s` |
-| Orchestrator | Podman / Docker | K3s / Kubernetes |
-| Config format | `.env` + `docker-compose.yml` | ConfigMap + Secret + YAML manifests |
-| Scaling | Manual | `kubectl scale` |
-| Health checks | Docker healthcheck | liveness/readiness/startup probes |
-| Service discovery | Docker DNS | Kubernetes DNS (`svc.cluster.local`) |
-| Storage | Docker volumes | PersistentVolumeClaims |
-| Rolling updates | `docker compose pull && up -d` | `kubectl rollout restart` |
-
-> For full K3s deployment documentation, switch to the [`k3s` branch](https://github.com/WOOWTECH/Woow_immich_docker_compose_all/tree/k3s).
+- **K3s/Kubernetes (Helm chart)** → [Woow_k3s_immich](https://github.com/WOOWTECH/Woow_k3s_immich)
+- **Home Assistant add-on** → [Woow_ha_immich](https://github.com/WOOWTECH/Woow_ha_immich)

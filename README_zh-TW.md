@@ -59,8 +59,8 @@ English | [繁體中文](README_zh-TW.md)
 
    | 欄位 | 值 |
    |------|-----|
-   | **Repository URL** | `https://github.com/WOOWTECH/Woow_immich_docker_compose_all` |
-   | **Repository reference** | `refs/heads/podman` |
+   | **Repository URL** | `https://github.com/WOOWTECH/Woow_podman_immich` |
+   | **Repository reference** | `refs/heads/main` |
    | **Compose path** | `docker-compose.yml` |
 
 5. 點擊 **Deploy the stack**
@@ -70,7 +70,7 @@ English | [繁體中文](README_zh-TW.md)
 1. 複製 `docker-compose.yml` 的 Raw URL：
 
    ```
-   https://raw.githubusercontent.com/WOOWTECH/Woow_immich_docker_compose_all/podman/docker-compose.yml
+   https://raw.githubusercontent.com/WOOWTECH/Woow_podman_immich/main/docker-compose.yml
    ```
 
 2. 登入 Portainer → **Stacks** → **Add stack** → **Web editor**
@@ -96,8 +96,8 @@ English | [繁體中文](README_zh-TW.md)
 ### 1. 複製儲存庫
 
 ```bash
-git clone https://github.com/WOOWTECH/Woow_immich_docker_compose_all.git
-cd Woow_immich_docker_compose_all
+git clone https://github.com/WOOWTECH/Woow_podman_immich.git
+cd Woow_podman_immich
 ```
 
 ### 2. 設定環境變數
@@ -291,7 +291,7 @@ docker compose exec -T database pg_dump -U postgres -d immich | gzip > "backup_i
 
 ```cron
 # 每日凌晨 3:00 執行 Immich 資料庫備份
-0 3 * * * cd /path/to/Woow_immich_docker_compose_all && docker compose exec -T database pg_dumpall -U postgres | gzip > backups/backup_$(date +\%Y\%m\%d).sql.gz 2>&1
+0 3 * * * cd /path/to/Woow_podman_immich && docker compose exec -T database pg_dumpall -U postgres | gzip > backups/backup_$(date +\%Y\%m\%d).sql.gz 2>&1
 ```
 
 ### 還原
@@ -447,3 +447,10 @@ server {
 ## 授權條款
 
 [MIT License](LICENSE) — Copyright (c) 2026 WOOWTECH
+
+---
+
+## 其他部署平台
+
+- **K3s/Kubernetes(Helm chart)** → [Woow_k3s_immich](https://github.com/WOOWTECH/Woow_k3s_immich)
+- **Home Assistant add-on** → [Woow_ha_immich](https://github.com/WOOWTECH/Woow_ha_immich)
