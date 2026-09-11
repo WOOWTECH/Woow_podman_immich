@@ -1,0 +1,11 @@
+# immich.target: one handle for the whole stack.
+#   systemctl --user start|stop|restart immich.target
+# Every container unit has PartOf=immich.target, so stop and restart propagate. Wants= on a
+# unit that is not installed (machine learning after --no-ml) is ignored.
+[Unit]
+Description=Immich stack
+Documentation=https://github.com/WOOWTECH/Woow_podman_immich
+Wants=immich-postgres.service immich-redis.service immich-machine-learning.service immich-server.service
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,25 @@
+# immich-redis.container: the Valkey job queue. Ephemeral by design (no volume), exactly
+# like upstream's compose file: Immich rebuilds the queue after a restart.
+[Unit]
+Description=Immich Redis (Valkey)
+Documentation=https://github.com/WOOWTECH/Woow_podman_immich
+PartOf=immich.target
+
+[Container]
+ContainerName=immich_redis
+Image=docker.io/valkey/valkey:9.1.2-alpine
+Network=immich.network:alias=redis
+Label=io.woowtech.app=immich
+LogDriver=journald
+HealthCmd=redis-cli ping || exit 1
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=5
+
+[Service]
+Restart=always
+RestartSec=10
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

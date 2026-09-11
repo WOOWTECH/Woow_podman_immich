@@ -1,0 +1,52 @@
+# immich-server.container: the web UI, the API and the background jobs.
+#
+# Rendered by scripts/install.sh (decision D2) from ~/.config/immich/immich.env:
+#   HOST_BIND / HOST_PORT   the publish address (127.0.0.1:2283 by default; a Cloudflare
+#                           tunnel or NPM provides public access)
+#   HOST_LIBRARY_DIR        the photo and video library, mounted at /data
+# The same file is passed to the container with --env-file, so Immich settings such as TZ
+# or IMMICH_LOG_LEVEL can be added there without editing this unit.
+#
+# podman ignores an OCI image's own HEALTHCHECK, so the check from upstream's Dockerfile
+# (immich-healthcheck) is repeated here.
+[Unit]
+Description=Immich server
+Documentation=https://github.com/WOOWTECH/Woow_podman_immich
+PartOf=immich.target
+Requires=immich-postgres.service immich-redis.service
+After=immich-postgres.service immich-redis.service immich-machine-learning.service
+# Wants=, not Requires=: the machine-learning container is optional (install.sh --no-ml).
+Wants=immich-machine-learning.service
+
+[Container]
+ContainerName=immich_server
+Image=ghcr.io/immich-app/immich-server:v2.7.5
+Network=immich.network:alias=immich-server
+Volume=@@HOST_LIBRARY_DIR@@:/data
+Volume=/etc/localtime:/etc/localtime:ro
+PublishPort=@@HOST_BIND@@:@@HOST_PORT@@:2283
+EnvironmentFile=%h/.config/immich/immich.env
+# --env beats --env-file, so the database identity cannot drift from the postgres unit.
+Environment=DB_USERNAME=postgres
+Environment=DB_DATABASE_NAME=immich
+Secret=immich-db-password,type=env,target=DB_PASSWORD
+Label=io.woowtech.app=immich
+LogDriver=journald
+# Upstream server/Dockerfile: HEALTHCHECK CMD immich-healthcheck
+HealthCmd=immich-healthcheck
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+# The first start after a version bump runs the database migrations.
+HealthStartPeriod=300s
+
+[Service]
+# Readiness gate: podman 4.9.3 ignores Notify=healthy, so poll the database and Redis
+# healthchecks defined in their units.
+ExecStartPre=/usr/bin/timeout 300 /bin/sh -c 'until /usr/bin/podman healthcheck run immich_postgres >/dev/null 2>&1 && /usr/bin/podman healthcheck run immich_redis >/dev/null 2>&1; do sleep 2; done'
+Restart=always
+RestartSec=10
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

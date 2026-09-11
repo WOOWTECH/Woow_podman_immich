@@ -1,0 +1,14 @@
+# immich.network: private bridge shared by the Immich containers.
+# They reach each other by network alias (database, redis, immich-machine-learning), which
+# are Immich's built-in default hostnames, so no DB_HOSTNAME / REDIS_HOSTNAME /
+# IMMICH_MACHINE_LEARNING_URL override is needed.
+#
+# The name is deliberately new: a host migrated from podman-compose keeps its old
+# immich_default network for the renamed legacy containers until the soak period ends.
+[Unit]
+Description=Immich bridge network
+Documentation=https://github.com/WOOWTECH/Woow_podman_immich
+
+[Network]
+NetworkName=immich
+Label=io.woowtech.app=immich

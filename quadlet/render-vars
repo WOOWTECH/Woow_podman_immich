@@ -1,0 +1,7 @@
+# Variables that scripts/install.sh may substitute as tokens in quadlet/ and systemd/
+# (decision D2). Values come from ~/.config/immich/immich.env. Anything not listed here is
+# a hard render error.
+HOST_BIND
+HOST_PORT
+HOST_LIBRARY_DIR
+HOST_POSTGRES_DIR
