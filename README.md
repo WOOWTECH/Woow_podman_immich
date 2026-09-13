@@ -174,9 +174,42 @@ scripts/migrate-legacy.sh --legacy-dir ~/Woow_immich_docker_compose_all --yes
 scripts/migrate-legacy.sh --rollback --yes
 ```
 
-The bind mounts are read from `podman inspect`, not guessed. The migration refuses to run
-while `podman-restart.service` is enabled: the renamed legacy containers keep
-`restart=always`, and a reboot would start a second PostgreSQL on the same data directory.
+The bind mounts are read from `podman inspect`, not guessed.
+
+### How the legacy containers are kept for rollback
+
+Renaming a legacy container and leaving it stopped is a rollback path only while nothing
+starts it again. The user unit `podman-restart.service` runs
+`podman start --all --filter restart-policy=always` at boot, so on a host where that unit is
+**enabled** a renamed, stopped container whose restart policy is exactly `always` revives at
+the next boot and fights the new Quadlet container for its name, ports and volumes — here, a second PostgreSQL opening the same data directory.
+podman 4.9.3 cannot repair that afterwards: `podman update` only rewrites cgroup limits, and a
+restart policy is fixed at create time.
+
+The script therefore asks `ql_rollback_strategy` — which reads this host's real state, never
+its name — and takes one of two paths. `--dry-run` prints which one applies here.
+
+| Answer | When | What the cutover does | What `--rollback` does |
+|---|---|---|---|
+| `rename` | the unit is disabled, or no legacy container has policy `always` | `podman rename <name> <name>-legacy-YYYYMMDD`, left stopped | renames it back |
+| `capture` | the unit is enabled **and** a legacy container has policy `always` | writes `<backup>/legacy-container/<name>/` (inspect, create command, image, policy, mounts, networks) and then a plain `podman rm` — never `podman rm -v`, which would delete the anonymous volumes | `ql_recreate_container` recreates it stopped, with its original restart policy |
+
+On `woowtechopenclaw` all four compose-era Immich containers carry `restart=always`
+and `podman-restart.service` is enabled, so a migration there takes the `capture` path. On
+`toypark1234` that unit is disabled, so the migration already done there keeps the `rename`
+path unchanged.
+
+Earlier versions of this script simply refused to run while `podman-restart.service` was
+enabled. That was safe but it blocked the migration outright; the capture path performs it
+correctly instead.
+
+The capture cannot bring back a container's **writable layer** — anything written inside the
+container that did not land in a volume or a bind mount. Immich keeps everything in the library bind mount, the PostgreSQL
+directory and the `immich_model-cache` volume, and the live containers' writable layers hold
+only a few kilobytes of runtime scratch, so nothing of value is lost.
+(`ql_capture_container --commit` exists for a stack that mutates its own container; Immich
+does not need it.) The container id and the IP/MAC
+lease are not preserved either. `tests/rollback-model.sh` pins both paths.
 
 Changes the migration makes on purpose: the publish moves from `0.0.0.0` to `127.0.0.1`
 (`--bind` overrides), the network becomes `immich` (the aliases keep the DNS names), the
@@ -186,6 +219,7 @@ ML containers get the healthchecks podman drops from OCI images.
 **After the soak period** (a week, including one reboot):
 
 ```bash
+# on the rename path; the capture path removed them at the cutover
 podman rm immich_server-legacy-YYYYMMDD immich_machine_learning-legacy-YYYYMMDD \
           immich_postgres-legacy-YYYYMMDD immich_redis-legacy-YYYYMMDD
 podman network rm immich_default

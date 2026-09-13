@@ -12,15 +12,25 @@
 #
 #   --legacy-dir DIR    the old compose checkout; its .env holds DB_PASSWORD and IMMICH_VERSION
 #   --bind ADDR         HOST_BIND of the new publish (default 127.0.0.1; compose used 0.0.0.0)
-#   --suffix S          the legacy containers become <name>-legacy-S (default: today)
+#   --suffix S          the legacy containers become <name>-legacy-S (default: today). Only
+#                       used on the rename path; see "Rollback shape" below.
 #   --prepare-only      steps 1-2 only, no downtime: checks, env file, secret, images, hot backup
 #   --dry-run           step 1 and a render of the units; changes nothing
 #   --no-auto-rollback  leave a failed cutover in place for inspection
-#   --rollback          undo the cutover: remove the Quadlet units, rename the legacy
+#   --rollback          undo the cutover: remove the Quadlet units, bring the legacy
 #                       containers back and re-enable the legacy unit
 #
+# Rollback shape (STANDARD 7a): the legacy containers are kept for --rollback either by
+# renaming them and leaving them stopped, or - where the user unit podman-restart.service is
+# enabled and a legacy container's restart policy is exactly `always`, as the compose-era
+# Immich containers are, because a renamed copy would revive at the next boot and a second
+# PostgreSQL would open the same data directory - by capturing them into the backup directory
+# and removing them. ql_rollback_strategy decides from this host's real state, never from its
+# name, and --dry-run reports which path a cutover would take. The capture is taken in step 2,
+# before any downtime.
+#
 # Steps:  1 pre-flight checks   2 backup (hot pg_dumpall now, cold tar of PGDATA after the stop)
-#         3 disable the legacy unit (kept on disk) and rename the legacy containers
+#         3 disable the legacy unit (kept on disk) and retire the legacy containers
 #         4 scripts/install.sh adopts the library, PGDATA and immich_model-cache
 #         5 tests/smoke.sh      6 --rollback when needed
 # shellcheck source-path=SCRIPTDIR
@@ -47,7 +57,7 @@ while (($#)); do
     --rollback) mode=rollback ;;
     --status) mode=status ;;
     --yes) ASSUME_YES=1 ;;
-    -h | --help) sed -n '2,27p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,35p' "$0"; exit 0 ;;
     *) ql_die "unknown option $1 (see --help)" ;;
   esac
   shift
@@ -77,12 +87,12 @@ unit_exists() { [[ -n $(systemctl --user show -p FragmentPath --value "$1" 2>/de
 # 6. rollback
 # =============================================================================================
 rollback() {
-  local status sfx c unit_state
+  local status sfx c unit_state bk
   local -a renamed=()
-  status=$(state_get STATUS) sfx=$(state_get SUFFIX)
+  status=$(state_get STATUS) sfx=$(state_get SUFFIX) bk=$(state_get BACKUP)
   read -ra renamed <<<"$(state_get RENAMED)"
   [[ $status == cutover || $status == "done" ]] || ql_die "nothing to roll back (migration status: ${status:-none})"
-  app_confirm "--rollback removes the Immich Quadlet units and brings back the legacy containers *-legacy-$sfx"
+  app_confirm "--rollback removes the Immich Quadlet units and brings the legacy containers back"
   ql_info "stopping and removing the Quadlet units (the library, the database and the model cache are kept)"
   ql_uninstall_units "$APP"
   rm -f -- "$APP_STATE_DIR/env.sha256"
@@ -92,10 +102,9 @@ rollback() {
         || ql_die "container $c exists and is not a Quadlet leftover; resolve it by hand"
       podman rm -f "$c" >/dev/null
     fi
-    podman container exists "$c-legacy-$sfx" || ql_die "legacy container $c-legacy-$sfx is missing"
-    podman rename "$c-legacy-$sfx" "$c"
-    ql_info "renamed $c-legacy-$sfx -> $c"
   done
+  # renamed back, or recreated from the capture the cutover took - whichever the host needed
+  app_legacy_restore "$sfx" "$bk" "${renamed[@]}"
   unit_state=$(state_get LEGACY_UNIT_STATE)
   if unit_exists "$LEGACY_UNIT"; then
     if [[ $unit_state == enabled ]]; then systemctl --user enable "$LEGACY_UNIT" >/dev/null 2>&1; fi
@@ -139,8 +148,6 @@ case $(state_get STATUS) in
   cutover | "done") ql_die "a cutover is already recorded in $STATE (use --status, or --rollback)" ;;
 esac
 if [[ $mode == dry-run ]]; then QL_DRY_RUN=1 ql_enable_linger; else ql_enable_linger; fi
-[[ $(systemctl --user is-enabled podman-restart.service 2>/dev/null || true) != enabled ]] \
-  || ql_die "podman-restart.service is enabled: the legacy containers keep restart=always, so at boot a second PostgreSQL would start on the same data directory. Disable it first"
 legacy_containers=()
 for c in "${LEGACY_REQUIRED[@]}"; do
   podman container exists "$c" || ql_die "legacy container $c not found"
@@ -151,8 +158,18 @@ for c in "${legacy_containers[@]}"; do
   label=$(podman inspect --format '{{index .Config.Labels "PODMAN_SYSTEMD_UNIT"}}' "$c")
   [[ $label != immich-*.service ]] || ql_die "$c is already managed by Quadlet ($label)"
   app_running "$c" || ql_die "legacy container $c is not running; start the legacy stack for the hot backup"
-  if podman container exists "$c-legacy-$suffix"; then ql_die "$c-legacy-$suffix already exists; pick another --suffix"; fi
 done
+# How the legacy containers are kept for --rollback: renamed and left stopped, or captured
+# and removed. Asked of this host, never of its name (STANDARD 7a, quadlet-lib >= 1.4.0).
+# The compose-era Immich containers carry restart=always, so on a host whose
+# podman-restart.service is enabled a renamed copy would revive at boot and a second
+# PostgreSQL would open the same data directory. That is what the capture path prevents.
+STRATEGY=$(ql_rollback_strategy "${legacy_containers[@]}")
+if [[ $STRATEGY == rename ]]; then
+  for c in "${legacy_containers[@]}"; do
+    if podman container exists "$c-legacy-$suffix"; then ql_die "$c-legacy-$suffix already exists; pick another --suffix"; fi
+  done
+fi
 legacy_library=$(mount_source "$SERVER_CONTAINER" /data)
 legacy_pgdata=$(mount_source "$DB_CONTAINER" /var/lib/postgresql/data)
 [[ -d $legacy_library ]] || ql_die "cannot find the library bind mount of $SERVER_CONTAINER (/data)"
@@ -204,7 +221,11 @@ if [[ $mode == dry-run ]]; then
   ql_env_load "$WORK/immich.env"
   app_validate_env
   app_render "$WORK/render" "$WORK/immich.env"
-  ql_info "dry-run: checks passed and the units render. The cutover would stop $LEGACY_UNIT, rename ${legacy_containers[*]} to *-legacy-$suffix and install:"
+  if [[ $STRATEGY == capture ]]; then
+    ql_info "dry-run: checks passed and the units render. The cutover would stop $LEGACY_UNIT, capture ${legacy_containers[*]} into the backup directory and remove them (podman-restart.service would revive a renamed copy here), and install:"
+  else
+    ql_info "dry-run: checks passed and the units render. The cutover would stop $LEGACY_UNIT, rename ${legacy_containers[*]} to *-legacy-$suffix and install:"
+  fi
   sed 's/^/    /' < <(grep -vE '^[[:space:]]*(#|$)' "$WORK/immich.env") >&2
   exit 0
 fi
@@ -243,7 +264,11 @@ app_save_secret "$SECRET_DB" "$bk/secrets/$SECRET_DB"
   podman exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -tAc \
     "select 'tables=' || count(*) from pg_stat_user_tables" 2>/dev/null || true
 } >"$bk/precheck.txt"
+# On the capture path the rollback copy is written now, while the legacy stack still runs:
+# a container whose create command cannot be replayed is then refused before any downtime.
+if [[ $STRATEGY == capture ]]; then app_legacy_capture "$bk" "${legacy_containers[@]}"; fi
 app_write_checksums "$bk"
+state_set STRATEGY "$STRATEGY"
 state_set STATUS prepared
 state_set BACKUP "$bk"
 state_set SUFFIX "$suffix"
@@ -260,7 +285,7 @@ fi
 # 3. stop + cold backup + rename (downtime starts)
 # =============================================================================================
 app_confirm "the cutover stops Immich (about 3-5 minutes of downtime)"
-ql_info "step 3/5: stopping the legacy stack, cold copy of the database directory, renaming"
+ql_info "step 3/5: stopping the legacy stack, cold copy of the database directory, retiring the legacy containers ($STRATEGY)"
 unit_state=$(systemctl --user is-enabled "$LEGACY_UNIT" 2>/dev/null || true)
 state_set LEGACY_UNIT_STATE "${unit_state:-absent}"
 state_set STATUS cutover
@@ -275,10 +300,7 @@ for c in "${legacy_containers[@]}"; do
   ! app_running "$c" || ql_die "$c is still running"
 done
 ql_backup_dir "$legacy_pgdata" "$bk/postgres-dir.tgz" >/dev/null
-for c in "${legacy_containers[@]}"; do
-  podman rename "$c" "$c-legacy-$suffix"
-  ql_info "renamed $c -> $c-legacy-$suffix (kept for --rollback)"
-done
+app_legacy_retire "$STRATEGY" "$suffix" "$bk" "${legacy_containers[@]}"
 app_write_checksums "$bk"
 
 # =============================================================================================
@@ -301,6 +323,10 @@ if ((failed)); then
 fi
 state_set STATUS "done"
 ql_info "migration complete. Compare with $bk/precheck.txt (extensions, table count)."
-ql_info "legacy containers *-legacy-$suffix and $LEGACY_UNIT (disabled) are kept for rollback:"
+if [[ $STRATEGY == capture ]]; then
+  ql_info "the legacy containers were captured into $bk/legacy-container and removed (podman-restart.service is enabled here, so a renamed copy would have revived at boot); $LEGACY_UNIT is disabled. Roll back with:"
+else
+  ql_info "legacy containers *-legacy-$suffix and $LEGACY_UNIT (disabled) are kept for rollback:"
+fi
 ql_info "  $0 --rollback"
 ql_info "after the soak period, clean up as described in README ('After the soak')"
