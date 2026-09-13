@@ -37,7 +37,7 @@ while (($#)); do
   shift
 done
 ql_require_rootless
-[[ ${WOOW_QL_LOCK_HELD:-} == "$APP" ]] || ql_lock "$APP"
+ql_lock "$APP"
 ql_env_load "$ENV_FILE"
 app_running "$DB_CONTAINER" || ql_die "$DB_CONTAINER is not running (start it: systemctl --user start $TARGET)"
 library_dir=$(app_dir HOST_LIBRARY_DIR)
@@ -65,16 +65,19 @@ if ((!no_library)); then
 fi
 
 # ---- cold part: PGDATA as bytes, with the whole stack stopped -------------------------------
+# restart_target: bring $TARGET back if this script ends between the stop and the start below.
+# A hook, not `trap ... EXIT`, which would replace the handler ql_lock armed.
+restart_target() { ((restart)) || return 0; systemctl --user start "$TARGET" || ql_warn "could not restart $TARGET"; }
 if ((cold)); then
   mapfile -t units < <(app_units)
   restart=0
-  trap 'if ((restart)); then systemctl --user start "$TARGET" || ql_warn "could not restart $TARGET"; fi' EXIT
+  ql_cleanup restart restart_target
   ql_info "stopping $TARGET for the cold copy of the database directory"
   restart=1
   systemctl --user stop "${units[@]}"
   ql_backup_dir "$postgres_dir" "$dest/postgres-dir.tgz" >/dev/null
   systemctl --user start "$TARGET"
-  # shellcheck disable=SC2034 # read by the EXIT trap set above
+  # shellcheck disable=SC2034 # read by the restart_target cleanup hook
   restart=0
 fi
 
