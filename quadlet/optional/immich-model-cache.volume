@@ -1,0 +1,10 @@
+# immich-model-cache.volume: the machine-learning models. They can always be downloaded
+# again, so backups skip it. VolumeName= keeps the podman-compose name, which adopts an
+# existing install as-is.
+[Unit]
+Description=Immich machine-learning model cache
+Documentation=https://github.com/WOOWTECH/Woow_podman_immich
+
+[Volume]
+VolumeName=immich_model-cache
+Label=io.woowtech.app=immich

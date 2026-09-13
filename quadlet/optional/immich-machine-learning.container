@@ -1,0 +1,41 @@
+# immich-machine-learning.container: face recognition and smart search. Optional.
+#
+# Installed unless IMMICH_MACHINE_LEARNING_ENABLED=false in ~/.config/immich/immich.env
+# (scripts/install.sh --no-ml sets that and removes this unit). Immich reads the same
+# variable: server/src/config.ts -> enabled = process.env.IMMICH_MACHINE_LEARNING_ENABLED
+# !== 'false'. The image is about 1.5 GB and downloads its models into the cache volume on
+# first use.
+#
+# For hardware acceleration use a suffixed tag (-cuda, -openvino, ...) and add the device;
+# see README, "Machine learning".
+[Unit]
+Description=Immich machine learning
+Documentation=https://github.com/WOOWTECH/Woow_podman_immich
+PartOf=immich.target
+
+[Container]
+ContainerName=immich_machine_learning
+# MUST equal the immich-server version in immich-server.container.
+Image=ghcr.io/immich-app/immich-machine-learning:v2.7.5
+Network=immich.network:alias=immich-machine-learning
+Volume=immich-model-cache.volume:/cache
+EnvironmentFile=%h/.config/immich/immich.env
+Label=io.woowtech.app=immich
+LogDriver=journald
+# Upstream machine-learning/Dockerfile: HEALTHCHECK CMD python3 healthcheck.py
+HealthCmd=python3 healthcheck.py
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=120s
+
+[Service]
+# A container stopped by systemd is stopped with SIGTERM: an entrypoint that does not
+# trap it exits 143 (128+15), which would leave the unit failed after a clean stop.
+SuccessExitStatus=143
+Restart=always
+RestartSec=10
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target
