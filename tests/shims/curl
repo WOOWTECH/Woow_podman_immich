@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Test double for curl, purpose-built for tests/version-check.sh (app_legacy_version_check /
+# app_api_version only call curl for a JSON GET with -fsS). Unlike the canonical
+# lib/tests/shims/curl (which only fakes an HTTP status code, for ql_wait_http), this one
+# fakes the response body, keyed by URL:
+#   $SHIM_STATE/curl_body/<url-with-/:-as-_>   body to print on stdout
+#   $SHIM_STATE/curl_fail/<url-with-/:-as-_>   if present, curl fails (exit 7, no output) -
+#                                               models "no answer" (down, unreachable, timeout)
+# A URL with neither file fails, matching real curl against nothing listening.
+set -u
+S=${SHIM_STATE:?SHIM_STATE is not set}
+printf 'curl %s\n' "$*" >>"$S/calls"
+url=''
+for a in "$@"; do case $a in http://* | https://*) url=$a ;; esac; done
+key=${url//[\/:]/_}
+if [[ -n $url && -f $S/curl_fail/$key ]]; then exit 7; fi
+if [[ -n $url && -f $S/curl_body/$key ]]; then cat -- "$S/curl_body/$key"; exit 0; fi
+exit 7

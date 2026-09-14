@@ -227,6 +227,40 @@ app_api_version() {
     "$(sed -n 's/.*"minor":\([0-9]*\).*/\1/p' <<<"$j")" "$(sed -n 's/.*"patch":\([0-9]*\).*/\1/p' <<<"$j")"
 }
 
+# app_legacy_version_check <legacy .env IMMICH_VERSION> <legacy base url>: dies unless the
+# legacy deployment is genuinely at the version this checkout pins ("migrate at the same
+# version, then upgrade" - scripts/migrate-legacy.sh never changes the version itself).
+#
+# The .env's IMMICH_VERSION is whatever the operator typed and may be a floating tag
+# (docker-compose's IMMICH_VERSION=v2 tracks the v2.x.x line); comparing that string against
+# the checkout's pinned tag literally false-fails whenever the floating tag isn't spelled
+# identically to the pin, even though the image it currently resolves to is the exact same
+# version (confirmed live on woowtechopenclaw: .env said v2, the running container answered
+# {"major":2,"minor":7,"patch":5}, and the checkout pins v2.7.5 - a real match the string
+# compare rejected). So the primary signal is the version the legacy server's own API
+# reports, which is authoritative regardless of what tag resolved to it. The literal .env
+# string is used only as a fallback, and only while the legacy API cannot be reached (it
+# must otherwise already be running: see LEGACY_REQUIRED in migrate-legacy.sh) - in which
+# case a floating tag is still a real, if weaker, signal. Prints the raw API JSON (or "") on
+# stdout for the caller to log, exactly as before this fix.
+app_legacy_version_check() {
+  local legacy_version=$1 base=$2 j running tgt=${IMMICH_VERSION#v}
+  j=$(curl -fsS -m 10 "$base/api/server/version" 2>/dev/null) || j=''
+  running=''
+  if [[ -n $j ]]; then
+    running=$(sed -n 's/.*"major":\([0-9]*\).*"minor":\([0-9]*\).*"patch":\([0-9]*\).*/\1.\2.\3/p' <<<"$j")
+  fi
+  if [[ -n $running ]]; then
+    [[ $running == "$tgt" ]] \
+      || ql_die "the running legacy Immich is $running (from its own API, not the .env's IMMICH_VERSION=$legacy_version) but this checkout pins $IMMICH_VERSION; migrate at the same version, then upgrade"
+  else
+    ql_warn "the legacy Immich did not answer its version API; falling back to the .env's IMMICH_VERSION=$legacy_version, which is unreliable for a floating tag"
+    [[ ${legacy_version#v} == "$tgt" ]] \
+      || ql_die "the legacy .env pins IMMICH_VERSION=$legacy_version but this checkout pins $IMMICH_VERSION; migrate at the same version, then upgrade"
+  fi
+  printf '%s' "$j"
+}
+
 # app_confirm <what>: interactive "type the app name" confirmation unless --yes was given
 app_confirm() {
   [[ ${ASSUME_YES:-0} == 1 || ${QL_DRY_RUN:-0} == 1 ]] && return 0
