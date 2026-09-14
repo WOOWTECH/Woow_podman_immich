@@ -177,12 +177,12 @@ legacy_pgdata=$(mount_source "$DB_CONTAINER" /var/lib/postgresql/data)
   || ql_die "the legacy .env must use DB_USERNAME=$DB_USER and DB_DATABASE_NAME=$DB_NAME (the units fix them)"
 [[ -n $(legacy_get DB_PASSWORD) ]] || ql_die "DB_PASSWORD is empty in $LEGACY_ENV"
 legacy_version=$(legacy_get IMMICH_VERSION)
-[[ ${legacy_version#v} == "${IMMICH_VERSION#v}" ]] \
-  || ql_die "the legacy .env pins IMMICH_VERSION=$legacy_version but this checkout pins $IMMICH_VERSION; migrate at the same version, then upgrade"
 legacy_port=$(legacy_get IMMICH_PORT)
 legacy_port=${legacy_port:-2283}
 ql_assert_match "IMMICH_PORT in the legacy .env" "$legacy_port" '[0-9]{1,5}'
-running_version=$(curl -fsS -m 10 "http://127.0.0.1:$legacy_port/api/server/version" 2>/dev/null || true)
+# Compares against the version the legacy server's own API reports, not a literal string
+# match on the legacy .env's IMMICH_VERSION: see app_legacy_version_check in scripts/app.sh.
+running_version=$(app_legacy_version_check "$legacy_version" "http://127.0.0.1:$legacy_port")
 if app_is_installed && [[ $(state_get STATUS) != prepared ]]; then
   ql_die "the Immich Quadlet units are already installed; this host needs no migration"
 fi
