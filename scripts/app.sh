@@ -222,6 +222,7 @@ app_running() { [[ $(podman inspect --format '{{.State.Running}}' "$1" 2>/dev/nu
 # app_api_version [base url]: the version the running server reports, as x.y.z ("" when it
 # is down). Defaults to this host's own installed stack (app_base_url); pass a base url to
 # ask a different running server, such as a legacy compose deployment on another port.
+# shellcheck disable=SC2119 # every existing call site means the default (this host's stack)
 app_api_version() {
   local j
   j=$(curl -fsS -m 10 "${1:-$(app_base_url)}/api/server/version" 2>/dev/null) || return 0
